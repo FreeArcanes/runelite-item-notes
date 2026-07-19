@@ -3,7 +3,6 @@ plugins {
 }
 
 repositories {
-	mavenLocal()
 	maven {
 		url = 'https://repo.runelite.net'
 		content {
@@ -11,10 +10,11 @@ repositories {
 		}
 	}
 	mavenCentral()
+	mavenLocal()
 }
 
 def runeLiteVersion = 'latest.release'
-def pluginMainClass = 'com.example.ExamplePluginTest'
+def pluginMainClass = 'com.freearcanes.itemnotes.ItemNotesPluginLauncher'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
@@ -27,7 +27,7 @@ dependencies {
 	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
 }
 
-group = 'com.example'
+group = 'com.freearcanes.itemnotes'
 
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'
