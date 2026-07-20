@@ -5,7 +5,9 @@
 package com.freearcanes.itemnotes;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Dimension;
+import java.awt.GridLayout;
 import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,7 +32,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
@@ -40,10 +41,8 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
-import net.runelite.client.ui.components.PluginErrorPanel;
 import org.apache.commons.text.StringEscapeUtils;
 
 class ItemLoansPanel extends PluginPanel
@@ -66,7 +65,10 @@ class ItemLoansPanel extends PluginPanel
 	private final JComboBox<LoanSort> sort = new JComboBox<>(LoanSort.values());
 	private final JPanel activeContainer = createListContainer();
 	private final JPanel historyContainer = createListContainer();
-	private final JTabbedPane tabs = new JTabbedPane();
+	private final CardLayout contentLayout = new CardLayout();
+	private final JPanel content = new JPanel(contentLayout);
+	private final JButton activeTab = new JButton();
+	private final JButton historyTab = new JButton();
 	private final JPanel undoPanel = new JPanel(new BorderLayout(4, 0));
 	private final JLabel undoLabel = new JLabel();
 	private List<ItemLoan> loans = new ArrayList<>();
@@ -80,16 +82,34 @@ class ItemLoansPanel extends PluginPanel
 
 		setLayout(new BorderLayout(0, 8));
 		setBorder(new EmptyBorder(10, 10, 10, 10));
-		setBackground(ColorScheme.DARK_GRAY_COLOR);
+		setBackground(ItemLoansTheme.BACKGROUND);
+		getScrollPane().getViewport().setBackground(ItemLoansTheme.BACKGROUND);
+		getScrollPane().getViewport().getView().setBackground(ItemLoansTheme.BACKGROUND);
+		getWrappedPanel().setBackground(ItemLoansTheme.BACKGROUND);
 
-		JLabel title = new JLabel("Item Loan Ledger");
-		title.setFont(FontManager.getRunescapeBoldFont());
-		title.setForeground(ColorScheme.BRAND_ORANGE);
+		JLabel title = new JLabel("ITEM LOAN LEDGER");
+		title.setFont(FontManager.getRunescapeBoldFont().deriveFont(16f));
+		title.setForeground(ItemLoansTheme.GOLD_BRIGHT);
 
-		summary.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		JLabel subtitle = new JLabel("Private records - stored locally");
+		subtitle.setFont(FontManager.getRunescapeSmallFont());
+		subtitle.setForeground(ItemLoansTheme.MUTED);
+
+		summary.setForeground(ItemLoansTheme.PARCHMENT);
 		summary.setFont(FontManager.getRunescapeSmallFont());
 
+		JPanel titlePanel = new JPanel();
+		titlePanel.setBackground(ItemLoansTheme.SURFACE);
+		titlePanel.setBorder(ItemLoansTheme.surfaceBorder());
+		titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
+		titlePanel.add(title);
+		titlePanel.add(Box.createVerticalStrut(2));
+		titlePanel.add(subtitle);
+		titlePanel.add(Box.createVerticalStrut(6));
+		titlePanel.add(summary);
+
 		search.setToolTipText("Search by item, borrower, or loan details");
+		ItemLoansTheme.styleInput(search);
 		search.getDocument().addDocumentListener(new DocumentListener()
 		{
 			@Override
@@ -110,15 +130,24 @@ class ItemLoansPanel extends PluginPanel
 				renderLoans();
 			}
 		});
+		ItemLoansTheme.styleSelect(sort);
 		sort.addActionListener(event -> renderLoans());
 
-		JPanel searchRow = new JPanel(new BorderLayout(5, 0));
-		searchRow.setOpaque(false);
-		searchRow.add(search, BorderLayout.CENTER);
-		searchRow.add(sort, BorderLayout.EAST);
+		JLabel findLabel = new JLabel("FIND A LOAN");
+		findLabel.setFont(FontManager.getRunescapeSmallFont());
+		findLabel.setForeground(ItemLoansTheme.GOLD);
+		JPanel searchControls = new JPanel(new BorderLayout(5, 0));
+		searchControls.setOpaque(false);
+		searchControls.add(search, BorderLayout.CENTER);
+		searchControls.add(sort, BorderLayout.EAST);
+		JPanel searchPanel = new JPanel();
+		searchPanel.setOpaque(false);
+		searchPanel.setLayout(new BoxLayout(searchPanel, BoxLayout.Y_AXIS));
+		searchPanel.add(findLabel);
+		searchPanel.add(Box.createVerticalStrut(3));
+		searchPanel.add(searchControls);
 
-		JButton undo = new JButton("Undo");
-		undo.setFocusable(false);
+		JButton undo = ItemLoansTheme.button("Undo", ItemLoansTheme.ButtonKind.PRIMARY);
 		undo.addActionListener(event ->
 		{
 			if (undoLoan != null)
@@ -126,28 +155,39 @@ class ItemLoansPanel extends PluginPanel
 				plugin.reopenLoan(undoLoan);
 			}
 		});
-		undoPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-		undoPanel.setBackground(ColorScheme.MEDIUM_GRAY_COLOR);
+		undoLabel.setForeground(ItemLoansTheme.PARCHMENT);
+		undoLabel.setFont(FontManager.getRunescapeSmallFont());
+		undoPanel.setBorder(ItemLoansTheme.surfaceBorder());
+		undoPanel.setBackground(ItemLoansTheme.SURFACE_RAISED);
 		undoPanel.add(undoLabel, BorderLayout.CENTER);
 		undoPanel.add(undo, BorderLayout.EAST);
 		undoPanel.setVisible(false);
 
+		configureTab(activeTab, false);
+		configureTab(historyTab, true);
+		JPanel tabRow = new JPanel(new GridLayout(1, 2, 4, 0));
+		tabRow.setOpaque(false);
+		tabRow.add(activeTab);
+		tabRow.add(historyTab);
+
 		JPanel header = new JPanel();
 		header.setOpaque(false);
 		header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
-		header.add(title);
-		header.add(Box.createVerticalStrut(3));
-		header.add(summary);
-		header.add(Box.createVerticalStrut(7));
-		header.add(searchRow);
+		header.add(titlePanel);
+		header.add(Box.createVerticalStrut(8));
+		header.add(searchPanel);
+		header.add(Box.createVerticalStrut(8));
+		header.add(tabRow);
 		header.add(Box.createVerticalStrut(6));
 		header.add(undoPanel);
 
-		tabs.addTab("Active", activeContainer);
-		tabs.addTab("History", historyContainer);
+		content.setOpaque(false);
+		content.add(activeContainer, "active");
+		content.add(historyContainer, "history");
 
 		add(header, BorderLayout.NORTH);
-		add(tabs, BorderLayout.CENTER);
+		add(content, BorderLayout.CENTER);
+		selectTab(false);
 	}
 
 	void showLoans(List<ItemLoan> updatedLoans)
@@ -209,20 +249,29 @@ class ItemLoansPanel extends PluginPanel
 			? valueOrEmpty(suggestedNote) : existing.getNote(), 5, 24);
 		details.setLineWrap(true);
 		details.setWrapStyleWord(true);
+		ItemLoansTheme.styleInput(borrower);
+		ItemLoansTheme.styleSpinner(quantity);
+		ItemLoansTheme.styleInput(dueDate);
+		ItemLoansTheme.styleInput(details);
+		JScrollPane detailsScroll = new JScrollPane(details);
+		detailsScroll.setBorder(BorderFactory.createLineBorder(ItemLoansTheme.GOLD_DARK));
+		detailsScroll.getViewport().setBackground(ItemLoansTheme.INPUT);
 
 		JPanel form = new JPanel();
+		form.setBackground(ItemLoansTheme.BACKGROUND);
+		form.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 		form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-		form.add(new JLabel("Borrower (RuneScape name)"));
+		form.add(createFieldLabel("BORROWER (RUNESCAPE NAME)"));
 		form.add(borrower);
 		form.add(Box.createVerticalStrut(7));
-		form.add(new JLabel("Quantity"));
+		form.add(createFieldLabel("QUANTITY"));
 		form.add(quantity);
 		form.add(Box.createVerticalStrut(7));
-		form.add(new JLabel("Due date (YYYY-MM-DD, optional)"));
+		form.add(createFieldLabel("DUE DATE (YYYY-MM-DD, OPTIONAL)"));
 		form.add(dueDate);
 		form.add(Box.createVerticalStrut(7));
-		form.add(new JLabel("Loan details (up to " + ItemNotesPlugin.CHARACTER_LIMIT + " characters)"));
-		form.add(new JScrollPane(details));
+		form.add(createFieldLabel("DETAILS - UP TO " + ItemNotesPlugin.CHARACTER_LIMIT + " CHARACTERS"));
+		form.add(detailsScroll);
 
 		while (true)
 		{
@@ -297,11 +346,37 @@ class ItemLoansPanel extends PluginPanel
 		long totalHistory = loans.size() - totalActive;
 		summary.setText(totalActive + (totalActive == 1 ? " active loan" : " active loans")
 			+ " | " + totalHistory + " returned");
-		tabs.setTitleAt(0, "Active (" + totalActive + ")");
-		tabs.setTitleAt(1, "History (" + totalHistory + ")");
+		activeTab.setText("ACTIVE  " + totalActive);
+		historyTab.setText("HISTORY  " + totalHistory);
 
 		renderContainer(activeContainer, active, false, totalActive > 0);
 		renderContainer(historyContainer, history, true, totalHistory > 0);
+	}
+
+	private void configureTab(JButton button, boolean history)
+	{
+		button.setText(history ? "HISTORY  0" : "ACTIVE  0");
+		button.setFont(FontManager.getRunescapeBoldFont());
+		button.setFocusPainted(false);
+		button.setFocusable(false);
+		button.setOpaque(true);
+		button.addActionListener(event -> selectTab(history));
+	}
+
+	private void selectTab(boolean history)
+	{
+		contentLayout.show(content, history ? "history" : "active");
+		styleTab(activeTab, !history);
+		styleTab(historyTab, history);
+	}
+
+	private static void styleTab(JButton button, boolean selected)
+	{
+		button.setBackground(selected ? ItemLoansTheme.SURFACE_RAISED : ItemLoansTheme.INPUT);
+		button.setForeground(selected ? ItemLoansTheme.GOLD_BRIGHT : ItemLoansTheme.MUTED);
+		button.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(selected ? ItemLoansTheme.GOLD : ItemLoansTheme.GOLD_DARK),
+			BorderFactory.createEmptyBorder(7, 5, 7, 5)));
 	}
 
 	private List<ItemLoan> filterAndSort(boolean returned)
@@ -344,21 +419,20 @@ class ItemLoansPanel extends PluginPanel
 		container.removeAll();
 		if (visibleLoans.isEmpty())
 		{
-			PluginErrorPanel empty = new PluginErrorPanel();
 			if (hasUnfilteredLoans)
 			{
-				empty.setContent("No matching loans", "Try a different search.");
+				container.add(createEmptyState("NO MATCHING LOANS", "Try a different search."));
 			}
 			else if (returned)
 			{
-				empty.setContent("No loan history", "Returned loans will be kept here.");
+				container.add(createEmptyState("NO LOAN HISTORY", "Returned loans will be kept here."));
 			}
 			else
 			{
-				empty.setContent("No active loans",
-					"Shift-right-click an item and choose <b>Record Loan</b>, or add <b>@username</b> to its note.");
+				container.add(createEmptyState("YOUR LEDGER IS EMPTY",
+					"Shift-right-click an item and choose <b>Record Loan</b>.<br>"
+						+ "You can also add <b>@username</b> to an item note."));
 			}
-			container.add(empty);
 		}
 		else
 		{
@@ -375,34 +449,54 @@ class ItemLoansPanel extends PluginPanel
 	private JPanel createLoanCard(ItemLoan loan)
 	{
 		JPanel card = new JPanel(new BorderLayout(8, 6));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		card.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(ColorScheme.DARK_GRAY_COLOR),
-			new EmptyBorder(8, 8, 8, 8)));
+		card.setBackground(ItemLoansTheme.SURFACE);
+		card.setBorder(ItemLoansTheme.cardBorder());
 		card.setAlignmentX(LEFT_ALIGNMENT);
 
 		JLabel icon = new JLabel();
 		icon.setPreferredSize(ITEM_ICON_SIZE);
 		icon.setHorizontalAlignment(SwingConstants.CENTER);
 		itemManager.getImage(loan.getItemId()).addTo(icon);
+		JPanel iconSlot = new JPanel(new BorderLayout());
+		iconSlot.setPreferredSize(new Dimension(42, 42));
+		iconSlot.setBackground(ItemLoansTheme.SLOT);
+		iconSlot.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(ItemLoansTheme.GOLD_DARK),
+			BorderFactory.createEmptyBorder(4, 4, 4, 4)));
+		iconSlot.add(icon, BorderLayout.CENTER);
 
 		String displayItem = loan.getQuantity() > 1
 			? loan.getQuantity() + " x " + loan.getItemName() : loan.getItemName();
 		JLabel itemName = new JLabel("<html><b>" + escape(displayItem) + "</b></html>");
-		itemName.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		itemName.setForeground(ItemLoansTheme.GOLD_BRIGHT);
+
+		JLabel status = new JLabel(loan.isReturned() ? " DONE " : " ACTIVE ");
+		status.setOpaque(true);
+		status.setHorizontalAlignment(SwingConstants.CENTER);
+		status.setFont(FontManager.getRunescapeSmallFont());
+		status.setForeground(ItemLoansTheme.PARCHMENT);
+		status.setBackground(loan.isReturned() ? ItemLoansTheme.SECONDARY : ItemLoansTheme.ACTIVE);
+		status.setBorder(BorderFactory.createLineBorder(ItemLoansTheme.GOLD_DARK));
+
+		JPanel titleRow = new JPanel(new BorderLayout(4, 0));
+		titleRow.setOpaque(false);
+		titleRow.add(itemName, BorderLayout.CENTER);
+		titleRow.add(status, BorderLayout.EAST);
 
 		JLabel borrower = new JLabel("Loaned to @" + loan.getBorrower());
-		borrower.setForeground(ColorScheme.BRAND_ORANGE);
+		borrower.setForeground(ItemLoansTheme.GOLD);
+		borrower.setFont(FontManager.getRunescapeFont());
 
 		JLabel recordedAt = new JLabel(formatLoanAge(loan.getRecordedAt(), System.currentTimeMillis()));
-		recordedAt.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		recordedAt.setForeground(ItemLoansTheme.MUTED);
 		recordedAt.setFont(FontManager.getRunescapeSmallFont());
 		recordedAt.setToolTipText("Recorded " + formatTimestamp(loan.getRecordedAt()));
 
 		JPanel details = new JPanel();
 		details.setOpaque(false);
 		details.setLayout(new BoxLayout(details, BoxLayout.Y_AXIS));
-		details.add(itemName);
+		details.add(titleRow);
+		details.add(Box.createVerticalStrut(2));
 		details.add(borrower);
 		details.add(recordedAt);
 
@@ -413,7 +507,7 @@ class ItemLoansPanel extends PluginPanel
 			JLabel dueDate = new JLabel((overdue ? "Overdue - " : "Due - ")
 				+ RECORDED_DATE_FORMAT.format(Instant.ofEpochMilli(loan.getDueAt())));
 			dueDate.setFont(FontManager.getRunescapeSmallFont());
-			dueDate.setForeground(overdue ? ColorScheme.PROGRESS_ERROR_COLOR : ColorScheme.LIGHT_GRAY_COLOR);
+			dueDate.setForeground(overdue ? ItemLoansTheme.OVERDUE : ItemLoansTheme.PARCHMENT);
 			details.add(dueDate);
 		}
 
@@ -421,7 +515,7 @@ class ItemLoansPanel extends PluginPanel
 		{
 			JLabel returnedAt = new JLabel("Returned " + formatTimestamp(loan.getReturnedAt()));
 			returnedAt.setFont(FontManager.getRunescapeSmallFont());
-			returnedAt.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
+			returnedAt.setForeground(ItemLoansTheme.ACTIVE_HOVER);
 			details.add(returnedAt);
 		}
 
@@ -429,8 +523,13 @@ class ItemLoansPanel extends PluginPanel
 		{
 			JLabel note = new JLabel("<html><div style='width: 145px'>"
 				+ escape(loan.getNote()).replace("\n", "<br>") + "</div></html>");
-			note.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			note.setOpaque(true);
+			note.setBackground(ItemLoansTheme.INPUT);
+			note.setForeground(ItemLoansTheme.PARCHMENT);
 			note.setFont(FontManager.getRunescapeSmallFont());
+			note.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createMatteBorder(0, 2, 0, 0, ItemLoansTheme.GOLD_DARK),
+				BorderFactory.createEmptyBorder(4, 6, 4, 4)));
 			note.setToolTipText(loan.getNote());
 			details.add(Box.createVerticalStrut(3));
 			details.add(note);
@@ -438,16 +537,16 @@ class ItemLoansPanel extends PluginPanel
 
 		JPanel actions = new JPanel();
 		actions.setOpaque(false);
-		actions.setLayout(new BoxLayout(actions, BoxLayout.X_AXIS));
-		JButton edit = new JButton("Edit");
-		edit.setFocusable(false);
+		actions.setLayout(new BoxLayout(actions, BoxLayout.Y_AXIS));
+		JButton edit = ItemLoansTheme.button("Edit", ItemLoansTheme.ButtonKind.SECONDARY);
 		edit.addActionListener(event -> showLoanEditor(
 			loan.getItemId(), loan.getItemName(), loan, loan.getBorrower(), loan.getNote()));
-		JButton delete = new JButton("Delete");
-		delete.setFocusable(false);
+		JButton delete = ItemLoansTheme.button("Delete", ItemLoansTheme.ButtonKind.DANGER);
 		delete.addActionListener(event -> deleteLoanWithConfirmation(loan));
-		JButton state = new JButton(loan.isReturned() ? "Reopen" : "Return");
-		state.setFocusable(false);
+		JButton state = ItemLoansTheme.button(loan.isReturned() ? "Reopen loan" : "Mark returned",
+			ItemLoansTheme.ButtonKind.PRIMARY);
+		state.setMaximumSize(new Dimension(Integer.MAX_VALUE, state.getPreferredSize().height));
+		state.setAlignmentX(LEFT_ALIGNMENT);
 		state.addActionListener(event ->
 		{
 			if (loan.isReturned())
@@ -459,13 +558,15 @@ class ItemLoansPanel extends PluginPanel
 				plugin.markReturned(loan);
 			}
 		});
-		actions.add(edit);
-		actions.add(Box.createHorizontalStrut(4));
-		actions.add(delete);
-		actions.add(Box.createHorizontalGlue());
+		JPanel recordActions = new JPanel(new GridLayout(1, 2, 4, 0));
+		recordActions.setOpaque(false);
+		recordActions.add(edit);
+		recordActions.add(delete);
+		actions.add(recordActions);
+		actions.add(Box.createVerticalStrut(4));
 		actions.add(state);
 
-		card.add(icon, BorderLayout.WEST);
+		card.add(iconSlot, BorderLayout.WEST);
 		card.add(details, BorderLayout.CENTER);
 		card.add(actions, BorderLayout.SOUTH);
 		Dimension preferred = card.getPreferredSize();
@@ -489,10 +590,52 @@ class ItemLoansPanel extends PluginPanel
 		JOptionPane.showMessageDialog(this, message, "Invalid loan", JOptionPane.ERROR_MESSAGE);
 	}
 
+	private static JPanel createEmptyState(String titleText, String description)
+	{
+		JPanel empty = new JPanel();
+		empty.setBackground(ItemLoansTheme.SURFACE);
+		empty.setBorder(ItemLoansTheme.surfaceBorder());
+		empty.setLayout(new BoxLayout(empty, BoxLayout.Y_AXIS));
+		empty.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel ornament = new JLabel("- * -", SwingConstants.CENTER);
+		ornament.setForeground(ItemLoansTheme.GOLD_DARK);
+		ornament.setFont(FontManager.getRunescapeBoldFont());
+		ornament.setAlignmentX(CENTER_ALIGNMENT);
+
+		JLabel title = new JLabel(titleText, SwingConstants.CENTER);
+		title.setForeground(ItemLoansTheme.GOLD_BRIGHT);
+		title.setFont(FontManager.getRunescapeBoldFont());
+		title.setAlignmentX(CENTER_ALIGNMENT);
+
+		JLabel copy = new JLabel("<html><div style='width: 170px; text-align: center'>"
+			+ description + "</div></html>", SwingConstants.CENTER);
+		copy.setForeground(ItemLoansTheme.MUTED);
+		copy.setFont(FontManager.getRunescapeSmallFont());
+		copy.setAlignmentX(CENTER_ALIGNMENT);
+
+		empty.add(ornament);
+		empty.add(Box.createVerticalStrut(5));
+		empty.add(title);
+		empty.add(Box.createVerticalStrut(6));
+		empty.add(copy);
+		Dimension preferred = empty.getPreferredSize();
+		empty.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+		return empty;
+	}
+
+	private static JLabel createFieldLabel(String text)
+	{
+		JLabel label = new JLabel(text);
+		label.setForeground(ItemLoansTheme.GOLD);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		return label;
+	}
+
 	private static JPanel createListContainer()
 	{
 		JPanel container = new JPanel();
-		container.setOpaque(false);
+		container.setBackground(ItemLoansTheme.BACKGROUND);
 		container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
 		return container;
 	}

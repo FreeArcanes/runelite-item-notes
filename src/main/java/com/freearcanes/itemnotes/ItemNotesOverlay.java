@@ -11,6 +11,7 @@ import net.runelite.api.Client;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
+import net.runelite.client.util.ColorUtil;
 
 class ItemNotesOverlay extends Overlay
 {
@@ -37,7 +38,9 @@ class ItemNotesOverlay extends Overlay
 			String note = plugin.getHoveredItemNote();
 			if (note != null)
 			{
-				tooltipManager.add(new Tooltip(note));
+				String tooltip = ColorUtil.prependColorTag("Note:", config.noteLabelColor())
+					+ " " + ColorUtil.prependColorTag(note, config.noteTextColor());
+				tooltipManager.add(new Tooltip(tooltip));
 			}
 		}
 
