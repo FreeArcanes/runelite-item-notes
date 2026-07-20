@@ -9,9 +9,11 @@ Item Notes lets you attach private, persistent notes to RuneScape items and main
 - Add or edit a note by holding **Shift** and right-clicking an item.
 - See saved notes in item hover tooltips and after examining the item.
 - Customize the `Note:` label and note text with independent color pickers or hex codes.
-- Add `@username` to a note to create an active entry in the Item Loan Ledger.
-- Record the local date and time when a borrower is tagged.
-- Mark loans as returned while preserving the remaining note text.
+- Record loans directly from an item's Shift-right-click menu, including quantity, details, and an optional due date.
+- Add `@username` to a note as a quick way to create an active ledger entry.
+- Keep separate active and returned-loan history, with edit, reopen, delete, and one-click undo actions.
+- Search loans and sort them by borrower, age, or due date.
+- Track multiple loans of the same item independently.
 - Share notes between noted/unnoted and dose/charge variants through canonical item IDs.
 - Store all data privately in the local RuneLite configuration profile.
 
@@ -20,11 +22,13 @@ Item Notes lets you attach private, persistent notes to RuneScape items and main
 1. Hold **Shift** and right-click an item.
 2. Choose **Add Note** or **Edit Note**.
 3. Enter up to 256 characters and press Enter.
-4. To track a loan, include a tag such as `@Quickstart has a shrimp`.
-5. For RuneScape names containing spaces, use underscores: `@Clan_Mate` is displayed as `@Clan Mate` in the ledger.
-6. Open the Item Notes sidebar to review active loans or mark one returned.
+4. To track a full loan record, choose **Record Loan** from the same Shift-right-click menu.
+5. Enter the borrower, quantity, optional due date, and any details.
+6. As a shortcut, include a tag such as `@Quickstart has a shrimp` in an ordinary item note.
+7. For RuneScape names containing spaces, use underscores in tags: `@Clan_Mate` is displayed as `@Clan Mate` in the ledger.
+8. Open the Item Notes sidebar to search, edit, return, reopen, or delete loan records.
 
-Leaving the editor blank removes the note. Removing the `@username` tag removes the active loan record.
+Leaving the note editor blank removes the item note. Removing an `@username` tag moves its linked loan into history. Marking that loan returned removes the active tag while preserving the borrower's name in the note. Existing tagged notes are migrated automatically the first time the upgraded ledger loads.
 
 ## Screenshots
 
