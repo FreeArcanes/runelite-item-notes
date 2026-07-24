@@ -138,8 +138,6 @@ The lender then opens **Review agreement code**, pastes the returned `OK-` recei
 - Removing an active `@username` tag moves its linked loan into history.
 - Leaving the note editor blank removes that item note.
 
-![RuneLedger active and returned loan ledger](images/05-loan-ledger.png)
-
 ## Backup and restore
 
 Use **Export** and **Import** at the bottom of the sidebar to back up or merge private records. Imports are validated before use. Notes or loan records with the same item or loan ID are replaced only after confirmation. Display colors and other plugin preferences are not included in the backup.
@@ -154,13 +152,11 @@ Use **Export** and **Import** at the bottom of the sidebar to back up or merge p
 | --- | --- |
 | ![Note shown after examining](images/03-examine-note.png) | ![Item note tooltip](images/04-hover-tooltip.png) |
 
-| Loan ledger | Color settings |
+| Color settings | Color picker |
 | --- | --- |
-| ![Loan ledger and return button](images/05-loan-ledger.png) | ![Independent note colors](images/06-color-settings.png) |
+| ![Independent note colors](images/06-color-settings.png) | ![RuneLite color picker](images/07-color-picker.png) |
 
-| Color picker | Sidebar icon |
-| --- | --- |
-| ![RuneLite color picker](images/07-color-picker.png) | ![RuneLedger sidebar icon](images/08-sidebar-icon.png) |
+![RuneLedger sidebar icon](images/08-sidebar-icon.png)
 
 ## Privacy, identity checks, and limitations
 
