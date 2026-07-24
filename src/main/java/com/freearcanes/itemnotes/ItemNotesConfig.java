@@ -44,4 +44,15 @@ public interface ItemNotesConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		position = 4,
+		keyName = "notifyOverdueLoans",
+		name = "Overdue loan notification",
+		description = "Notify once after login when one or more active loans are overdue"
+	)
+	default boolean notifyOverdueLoans()
+	{
+		return false;
+	}
 }
