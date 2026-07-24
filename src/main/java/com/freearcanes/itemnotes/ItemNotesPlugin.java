@@ -12,8 +12,12 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
@@ -23,13 +27,16 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.KeyCode;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.client.Notifier;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -51,17 +58,17 @@ import net.runelite.client.util.Text;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Item Notes",
+	name = "RuneLedger: Item Notes & Loans",
 	description = "Attach private notes to items and track loans",
-	tags = {"item", "loan", "notes"}
+	tags = {"agreement", "item", "loan", "notes"}
 )
 public class ItemNotesPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "itemNotes";
 	static final String KEY_PREFIX = "note_";
-	private static final String LOAN_RECORDED_AT_PREFIX = "loanRecordedAt_";
-	private static final String LOAN_RECORD_PREFIX = "loanRecord_";
-	private static final String LOAN_LEDGER_VERSION_KEY = "loanLedgerVersion";
+	static final String LOAN_RECORDED_AT_PREFIX = "loanRecordedAt_";
+	static final String LOAN_RECORD_PREFIX = "loanRecord_";
+	static final String LOAN_LEDGER_VERSION_KEY = "loanLedgerVersion";
 	private static final int LOAN_LEDGER_VERSION = 2;
 	static final int CHARACTER_LIMIT = 256;
 	private static final String ADD_NOTE = "Add Note";
@@ -79,6 +86,9 @@ public class ItemNotesPlugin extends Plugin
 
 	@Inject
 	private ClientThread clientThread;
+
+	@Inject
+	private Notifier notifier;
 
 	@Inject
 	private ConfigManager configManager;
@@ -116,6 +126,7 @@ public class ItemNotesPlugin extends Plugin
 
 	private final Deque<String> pendingExamineNotes = new ArrayDeque<>();
 	private NavigationButton navigationButton;
+	private boolean overdueNotificationSent;
 
 	@Provides
 	ItemNotesConfig provideConfig(ConfigManager configManager)
@@ -130,7 +141,7 @@ public class ItemNotesPlugin extends Plugin
 
 		BufferedImage icon = ImageUtil.loadImageResource(getClass(), "item_notes_icon.png");
 		navigationButton = NavigationButton.builder()
-			.tooltip("Item Loans")
+			.tooltip("RuneLedger")
 			.icon(icon)
 			.priority(8)
 			.panel(loansPanel)
@@ -147,16 +158,25 @@ public class ItemNotesPlugin extends Plugin
 		loansPanel.clearUndo();
 		hoveredItemNote = null;
 		pendingExamineNotes.clear();
+		overdueNotificationSent = false;
 	}
 
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (CONFIG_GROUP.equals(event.getGroup())
-			&& (event.getKey().startsWith(KEY_PREFIX)
-				|| event.getKey().startsWith(LOAN_RECORD_PREFIX)))
+		if (!CONFIG_GROUP.equals(event.getGroup()))
+		{
+			return;
+		}
+		if (event.getKey().startsWith(KEY_PREFIX)
+			|| event.getKey().startsWith(LOAN_RECORD_PREFIX))
 		{
 			refreshLoans();
+		}
+		if ("notifyOverdueLoans".equals(event.getKey()))
+		{
+			overdueNotificationSent = false;
+			clientThread.invokeLater((Runnable) this::notifyOverdueLoans);
 		}
 	}
 
@@ -164,7 +184,21 @@ public class ItemNotesPlugin extends Plugin
 	public void onProfileChanged(ProfileChanged event)
 	{
 		loansPanel.clearUndo();
+		overdueNotificationSent = false;
 		refreshLoans();
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			overdueNotificationSent = false;
+		}
+		else if (event.getGameState() == GameState.LOGGED_IN)
+		{
+			notifyOverdueLoans();
+		}
 	}
 
 	@Subscribe
@@ -371,7 +405,7 @@ public class ItemNotesPlugin extends Plugin
 
 		ItemLoan loan = existing == null
 			? new ItemLoan(UUID.randomUUID().toString(), itemId, itemName, normalizedBorrower,
-				quantity, trimmedNote, System.currentTimeMillis(), dueAt, 0, false)
+				quantity, trimmedNote, System.currentTimeMillis(), dueAt, 0, false, null)
 			: existing.withDetails(normalizedBorrower, quantity, trimmedNote, dueAt);
 		storeLoan(loan);
 		if (existing != null && existing.isLinkedToItemNote()
@@ -437,6 +471,15 @@ public class ItemNotesPlugin extends Plugin
 
 		if (sameBorrower(previousBorrower, borrower))
 		{
+			if (linkedLoan != null)
+			{
+				String updatedNote = Strings.nullToEmpty(note).trim();
+				if (!linkedLoan.getNote().equals(updatedNote))
+				{
+					storeLoan(linkedLoan.withDetails(linkedLoan.getBorrower(),
+						linkedLoan.getQuantity(), updatedNote, linkedLoan.getDueAt()));
+				}
+			}
 			return;
 		}
 
@@ -464,7 +507,7 @@ public class ItemNotesPlugin extends Plugin
 		}
 		String itemName = itemManager.getItemComposition(itemId).getName();
 		storeLoan(new ItemLoan(UUID.randomUUID().toString(), itemId, itemName, borrower,
-			1, Strings.nullToEmpty(note), recordedAt, 0, 0, true));
+			1, Strings.nullToEmpty(note), recordedAt, 0, 0, true, null));
 	}
 
 	private void storeLoan(ItemLoan loan)
@@ -486,9 +529,218 @@ public class ItemNotesPlugin extends Plugin
 			loans = loadStoredLoans();
 		}
 		loansPanel.showLoans(loans);
+		notifyOverdueLoans(loans);
+	}
+
+	String createBackupJson()
+	{
+		Map<String, String> entries = new LinkedHashMap<>();
+		String groupPrefix = CONFIG_GROUP + ".";
+		for (String wholeKey : configManager.getConfigurationKeys(groupPrefix))
+		{
+			String key = wholeKey.substring(groupPrefix.length());
+			if (!ItemNotesBackup.isBackupKey(key))
+			{
+				continue;
+			}
+			String value = configManager.getConfiguration(CONFIG_GROUP, key);
+			if (value != null)
+			{
+				entries.put(key, value);
+			}
+		}
+		return gson.toJson(new ItemNotesBackup(ItemNotesBackup.CURRENT_VERSION,
+			System.currentTimeMillis(), entries));
+	}
+
+	ItemNotesBackup parseBackup(String json)
+	{
+		try
+		{
+			ItemNotesBackup backup = gson.fromJson(json, ItemNotesBackup.class);
+			if (backup == null)
+			{
+				throw new IllegalArgumentException("The selected file is not a RuneLedger backup.");
+			}
+			return backup.validated();
+		}
+		catch (RuntimeException ex)
+		{
+			if (ex instanceof IllegalArgumentException)
+			{
+				throw (IllegalArgumentException) ex;
+			}
+			throw new IllegalArgumentException("The selected file is not a valid RuneLedger backup.", ex);
+		}
+	}
+
+	void importBackup(ItemNotesBackup backup)
+	{
+		ItemNotesBackup validated = backup.validated();
+		for (Map.Entry<String, String> entry : validated.getEntries().entrySet())
+		{
+			configManager.setConfiguration(CONFIG_GROUP, entry.getKey(), entry.getValue());
+		}
+		loansPanel.clearUndo();
+		overdueNotificationSent = false;
+		refreshLoans();
+	}
+
+	String createAgreementOffer(ItemLoan loan, String lender, String itemShortcut)
+	{
+		// Agreement actions originate on Swing's event dispatch thread. Avoid refreshing
+		// item compositions here because ItemManager requires RuneLite's client thread.
+		List<ItemLoan> loans = loadStoredLoans(false);
+		for (int attempt = 0; attempt < 100; attempt++)
+		{
+			String transactionId = String.format("%04d",
+				ThreadLocalRandom.current().nextInt(10_000));
+			LoanReferenceCode reference = LoanReferenceCode.offer(lender, loan.getBorrower(),
+				itemShortcut, transactionId);
+			boolean duplicate = loans.stream().anyMatch(candidate ->
+				hasMatchingOffer(candidate, reference));
+			if (!duplicate)
+			{
+				String code = reference.encode();
+				storeLoan(loan.withAgreementCode(code));
+				refreshLoans();
+				return code;
+			}
+		}
+		throw new IllegalStateException("A unique transaction ID could not be generated.");
+	}
+
+	LoanReferenceCode decodeAgreement(String code)
+	{
+		return LoanReferenceCode.decode(code);
+	}
+
+	void verifyLocalPlayer(@Nullable String expectedPlayer, Consumer<String> onVerified,
+		Consumer<String> onRejected)
+	{
+		clientThread.invokeLater((Runnable) () ->
+		{
+			String localPlayer = client.getGameState() == GameState.LOGGED_IN
+				&& client.getLocalPlayer() != null
+				? client.getLocalPlayer().getName() : null;
+			String playerName = null;
+			String error;
+			try
+			{
+				playerName = validateLocalPlayerName(localPlayer, expectedPlayer);
+				error = null;
+			}
+			catch (IllegalArgumentException ex)
+			{
+				error = ex.getMessage();
+			}
+
+			String verifiedPlayer = playerName;
+			String rejection = error;
+			SwingUtilities.invokeLater(() ->
+			{
+				if (rejection == null)
+				{
+					onVerified.accept(verifiedPlayer);
+				}
+				else
+				{
+					onRejected.accept(rejection);
+				}
+			});
+		});
+	}
+
+	static String validateLocalPlayerName(@Nullable String localPlayer, @Nullable String expectedPlayer)
+	{
+		String playerName = normalizeBorrower(localPlayer);
+		if (playerName == null)
+		{
+			throw new IllegalArgumentException(
+				"Log in to the RuneScape character that should perform this action.");
+		}
+		if (expectedPlayer != null && !sameBorrower(playerName, expectedPlayer))
+		{
+			throw new IllegalArgumentException("This reference is for @" + expectedPlayer
+				+ ", but this client is logged in as @" + playerName
+				+ ". Switch to the matching character to continue.");
+		}
+		return playerName;
+	}
+
+	String acceptAgreement(LoanReferenceCode offer, String acceptingPlayer)
+	{
+		String normalizedPlayer = normalizeBorrower(acceptingPlayer);
+		if (!sameBorrower(normalizedPlayer, offer.getBorrower()))
+		{
+			throw new IllegalArgumentException("The acceptance name must match the requested borrower.");
+		}
+		return offer.accept().encode();
+	}
+
+	void attachAgreementReceipt(LoanReferenceCode receipt)
+	{
+		if (receipt.getState() != LoanReferenceCode.State.ACCEPTED)
+		{
+			throw new IllegalArgumentException("Only an accepted receipt can be attached to a loan.");
+		}
+		// Receipt review also originates on Swing's event dispatch thread.
+		ItemLoan loan = loadStoredLoans(false).stream()
+			.filter(candidate -> hasMatchingOffer(candidate, receipt))
+			.findFirst()
+			.orElseThrow(() -> new IllegalArgumentException(
+				"No matching loan was found in this RuneLedger profile."));
+		storeLoan(loan.withAgreementCode(receipt.encode()));
+		refreshLoans();
+	}
+
+	private boolean hasMatchingOffer(ItemLoan loan, LoanReferenceCode receipt)
+	{
+		if (loan.getAgreementCode() == null)
+		{
+			return false;
+		}
+		try
+		{
+			return receipt.matchesOffer(decodeAgreement(loan.getAgreementCode()));
+		}
+		catch (IllegalArgumentException ex)
+		{
+			return false;
+		}
+	}
+
+	private void notifyOverdueLoans()
+	{
+		notifyOverdueLoans(loadStoredLoans());
+	}
+
+	private void notifyOverdueLoans(List<ItemLoan> loans)
+	{
+		if (overdueNotificationSent || !config.notifyOverdueLoans()
+			|| client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+
+		long now = System.currentTimeMillis();
+		long overdue = loans.stream()
+			.filter(loan -> ItemLoansPanel.isOverdue(loan, now))
+			.count();
+		if (overdue > 0)
+		{
+			notifier.notify("RuneLedger: " + overdue
+				+ (overdue == 1 ? " active loan is overdue." : " active loans are overdue."));
+		}
+		overdueNotificationSent = true;
 	}
 
 	private List<ItemLoan> loadStoredLoans()
+	{
+		return loadStoredLoans(true);
+	}
+
+	private List<ItemLoan> loadStoredLoans(boolean refreshItemNames)
 	{
 		List<ItemLoan> loans = new ArrayList<>();
 		String wholePrefix = CONFIG_GROUP + "." + LOAN_RECORD_PREFIX;
@@ -512,12 +764,18 @@ public class ItemNotesPlugin extends Plugin
 				}
 
 				String id = key.substring(LOAN_RECORD_PREFIX.length());
-				String itemName = itemManager.getItemComposition(stored.getItemId()).getName();
+				String itemName = refreshItemNames
+					? itemManager.getItemComposition(stored.getItemId()).getName()
+					: Strings.nullToEmpty(stored.getItemName()).trim();
+				if (itemName.isEmpty())
+				{
+					itemName = "Item " + stored.getItemId();
+				}
 				loans.add(new ItemLoan(id, stored.getItemId(), itemName, borrower,
 					Math.max(1, stored.getQuantity()), Strings.nullToEmpty(stored.getNote()),
 					stored.getRecordedAt() > 0 ? stored.getRecordedAt() : System.currentTimeMillis(),
 					Math.max(0, stored.getDueAt()), Math.max(0, stored.getReturnedAt()),
-					stored.isLinkedToItemNote()));
+					stored.isLinkedToItemNote(), normalizeAgreementCode(stored.getAgreementCode())));
 			}
 			catch (RuntimeException ex)
 			{
@@ -572,7 +830,7 @@ public class ItemNotesPlugin extends Plugin
 				}
 				String itemName = itemManager.getItemComposition(itemId).getName();
 				ItemLoan migrated = new ItemLoan(UUID.randomUUID().toString(), itemId, itemName,
-					borrower, 1, Strings.nullToEmpty(note), recordedAt, 0, 0, true);
+					borrower, 1, Strings.nullToEmpty(note), recordedAt, 0, 0, true, null);
 				storeLoan(migrated);
 				existingLoans.add(migrated);
 			}
@@ -650,5 +908,22 @@ public class ItemNotesPlugin extends Plugin
 	static boolean sameBorrower(@Nullable String first, @Nullable String second)
 	{
 		return first == null ? second == null : second != null && first.equalsIgnoreCase(second);
+	}
+
+	@Nullable
+	private static String normalizeAgreementCode(@Nullable String code)
+	{
+		if (Strings.isNullOrEmpty(code))
+		{
+			return null;
+		}
+		try
+		{
+			return LoanReferenceCode.decode(code).encode();
+		}
+		catch (IllegalArgumentException ex)
+		{
+			return null;
+		}
 	}
 }
